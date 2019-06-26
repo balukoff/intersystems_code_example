@@ -1,0 +1,698 @@
+<!DOCTYPE html><CSP:CLASS SUPER="Auth.SysUserA"> 
+<html>
+<head>
+	<meta http-equiv="X-UA-Compatible" content="IE=edge" />
+
+<server>
+	set dogExists = 0
+	set DogID = ##class(ESystem.EPrefs).GetPrefX("contractId")
+	if ( ##class(Contracts.EPhDogovor).%ExistsId(DogID) ) {
+		set dogExists = 1
+		set dogovor = ##class(Contracts.EPhDogovor).%OpenId(DogID)
+		set typdg = dogovor.Type
+		set dogOpenDate = dogovor.BDate
+		set FNUM = dogovor.FaceNum
+	}
+	set userId = ..CheckUser()
+</server>
+
+	<link rel="stylesheet" type="text/css" href="/Lib/style.css">
+	<script language="javascript" src="/Lib/ie5lib.js"></script>
+	<script language="javascript" src="/Lib/main.js"></script>
+	<script language="javascript" src="/Lib/jqueryLatest.js"></script>
+	<script language="javascript" src="/Lib/jquery-ui-redmond/jquery-ui.js"></script>
+	<script language="javascript" src="/Lib/bootstrap/js/bootstrap.min.js"></script>
+	<link rel="stylesheet" type="text/css" href="/Lib/bootstrap/css/bootstrap.min.css">
+ 
+	<style>
+		html, body { height: 100%; }
+		#footer {
+			position: fixed;
+			overflow: auto;
+			width: 100%;
+			bottom: 0;
+			height: 30px;
+		}
+		div, tr, td, table, thead, tbody{ box-sizing: content-box; }
+		.modal-dialog {
+			position: relative; display: table; 
+			overflow-y: auto; overflow-x: auto;
+			width: auto; min-width: 300px;   
+		}
+		.tooltip {
+			border: 1px solid black;
+			color: white;
+			padding: 2px;
+			background: gray;
+			position: absolute;
+			z-index: 50000;
+		}
+		thead, tfoot{ background: #a8b4e0a6;}
+		.osvButton{ width:120px; padding:8px 16px 8px 16px; }
+		.allow-print{ display:none; }
+		.renderMbody{ border: 2px solid #333; color:black; cursor:move; padding:5px; }
+		.hidden-print { height: 100%; }
+		.hidden{ display: none; }
+		@media print {
+			.hidden-print { visibility:hidden; }
+			.allow-print{
+				display:block; position:absolute;
+				top:20px; left:20px;
+				font-size:6pt;
+				max-width:600px; min-width:600px;
+			}
+		}
+		
+	</style>
+</head>
+<body class='MBODY' onload='pageLoaded();' onbeforeunload='clear();'>
+<script language='javascript'>
+	function ReplaceVal(elname, val) {
+		var el = document.getElementById(elname);
+		el.innerHTML = val;
+	};
+</script>
+<div class='hidden-print'>
+<CSP:IF condition='dogExists=0'>
+  <div align='center'>Не найден экземпляр класса с ID=#(%request.Get("dgid"))#</div>
+  </body>
+  <server>quit</server>
+</CSP:IF>
+<server>
+  new ND, BPD, EPD, D1, D2, D3, Type, SType, ST, DLP, IC, FullName, Facenum, whowho, zvanie, nam, nType, STypeC, OC
+  set nam = ##class(Auth.SysUser).CheckUser()
+  set IC = "checked" 
+  set OC = ##class(ESystem.EPrefs).GetPref("OperBuchD", "checked")
+  set DLP = 0, whowho = "", zvanie = ""
+  set BDate = $$GetGVar^EK("BeginWorkDate")
+  &SQL(select Facenum, Abonent->FullName, ServiceType, CurSaldo, BDate, ServiceType, Type 
+  		into :Facenum, :FullName, :ST, :CurS, :BDate, :STypeC, :Type 
+  		from Contracts.EPhDogovor where ID = :DogID)
+  set BDate = $zdh("01/01/1996", 4) // а вот так вота!
+  set nType = $select(Type=4:"услугам ЖКХ", Type=5:"доп. услугам", 1:"т/энергии")
+  set roleisk = ##class(Auth.SysN).checkRole("LimitActless")
+  set CurS = +$listget(##class(Saldo.ECSaldoA).GetSaldoByDuty(DogID,1), 1)
+  set D3 = $$NextMMFromDate^EU(+$H) - 1
+  set D1 = ##class(ESystem.EPrefs).GetPrefX("RevBPeriodB", $$MMYYFromDate^EU(+$H))
+  set D2 = ##class(ESystem.EPrefs).GetPrefX("RevBPeriodE", $$gomonth^EU903($$NextMMFromDate^EU(+$H),1)-1)
+  
+  if (D1 < BDate) { set D1 = BDate }
+  if (D1 > D2) { set D1 = D2 }
+  if (D2 > D3) { set D3 = D2 }
+  
+  &sql(select name into :SType from Refs.ServiceType where code = :STypeC)
+  
+  s dgList = ""
+  &sql(select list(id) into :dgList from Contracts.EPhDogovor where facenum = :FNUM)
+  s dgList = $lfs(dgList, ",")
+  
+</server>
+
+<div align=left style='width:100%;' id='divhead'>
+<table width=100% border="0" cellspacing="0" cellpadding="0">
+  <tr>
+    <td class="th2" width="15%">C&nbsp;#($ZD(D1,4))#</td>
+    <td class="th2" width="70%">
+      Сводная ведомость начислений и поступивших оплат <!--#(FullName)# по #(nType)#<!--  c  [#($ZD($H,4))#]-->
+    </td>
+    <td class="th2" width="15%">По&nbsp;#($ZD(D2,4))#</td>
+  </tr>
+  <tr>
+    <td>
+      <select style="width:100%;" onchange='ChSelect(this,"RevBPeriodB")'>
+        <server language="Cache"> Do ..WrSel(BDate,D1,D3,1)</server>
+      </select>
+    </td>
+    <td class="th2" >
+      <server language="Cache">
+      // делаем для каждого договора
+		kill ^||mtempFacenumV
+
+		for index=1:1:$ll(dgList){
+         s dg = $lg(dgList, index)
+         set res = ..AgrT($lb(32,dg,D1,D2,nam,1,IC,OC))
+         merge ^||mtempFacenumV = ^||mtempAgrtV("Op32")
+		}
+		
+		k ^||mtempAgrtV("Op32")
+		merge ^||mtempAgrtV("Op32") = ^||mtempFacenumV 
+		k ^||mtempFacenumV 
+	
+        if ($$GetGVar^EK("BillerServiceProvider") '= "TSBY") {
+          if ( $data(^||mtempAgrtV("Op32", DogID, nam, "PLAN")) ) {
+            s CurS = CurS + ^||mtempAgrtV("Op32", DogID, nam, "PLAN")
+          }
+        }
+      
+      s address = ""
+      &sql(select Address->FullAddress into :address from Contracts.EPhDogovor where ID = :DogID)
+      s tstart = $zd(D1, 4), tend = $zd(D2, 4)
+      </server>
+      
+      за потребленную тепловую энергию (отопление и (или) горячее водоснабжение) по адресу <b>#(address)#</b><br>
+      за период #(tstart)# по #(tend)#
+      
+      <!--Текущее&nbsp;состояние&nbsp;счета&nbsp;с&nbsp;учетом&nbsp;плановых&nbsp;начислений&nbsp;на&nbsp;#($zd(+$H,4))#&nbsp;:
+      &nbsp;#($s(CurS>0:"дебет<font color=red>",CurS=0:"<font color=black>",1:"кредит<font color=black>"))#&nbsp;#(CurS)#</font>&nbsp;р.
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;#(vSDeb)#&nbsp;&nbsp;&nbsp;#(SDeebNotPir)#&nbsp;&nbsp;&nbsp; -->
+      
+      <server>
+        s fn     = $lg($g(^Contract.EPhDogovorD(DogID)),6)
+        s statdg = $lg($g(^Contract.EPhDogovorD(DogID)),10)
+        s typdg  = $lg($g(^Contract.EPhDogovorD(DogID)),11)
+        
+        if (statdg = 0) {
+          &sql(declare sdg cursor for 
+               select id, type, cursaldo 
+               from Contracts.EPhDogovor where status=0 and facenum=:fn and type<>:typdg)
+               
+          &sql(open sdg)
+          for { &sql(fetch sdg into :iddg, :iddgtyp, :curs)  q:SQLCODE
+            &sql(select Sname, ispir into :sname, :isosn from charges.eprodkind where code=:iddgtyp)
+            continue:SQLCODE
+          }
+          &sql(close sdg)
+        }
+      </server>
+    </td>
+    <td>
+      <select style="width:100%;" onchange='ChSelect(this,"RevBPeriodE")'>
+        <server language="Cache"> Do ..WrSel(BDate,D2,D3,0)</server>
+      </select>
+    </td>
+  </tr>
+</table>
+<br/>
+</div>
+<div id='wrap' style='height:80%; overflow:auto;'>
+  <server language="Cache"> 
+  do:('res) WLog^EU903("LogDir","otlbuch.log","res="_res)
+  do ..WrT1(Facenum, DogID, D1, D2, IC, nam)
+  </server>
+</div>
+
+<server>
+ s f1 = 0
+ s bbuuss = ##class(Auth.SysUser).CheckUser()
+ ///  
+
+ n SFine 
+ s SFine = 0
+  //s SFine = +##class(Charges.EFineChargesA).SumFineForObor(DogID,bbuuss,,,,1)
+ 
+ for index=1:1:$ll(dgList){ 
+  s dg = $lg(dgList, index)
+  s SFine = +##class(Charges.EFineChargesA).SumFineForObor(dg, bbuuss,,,,1)
+
+  if (OC '= "") {
+   s f1 = +SFine - ##class(Saldo.OperPlat).GetSaldoByDuty(dg, 2) 
+   if (f1 < 0) {s f1 = 0}
+   s SFine = SFine + f1 
+  }
+
+}
+s BPD = D1
+s EPD = D2
+s hEPD = EPD
+s:(EPD>+$H) hEPD = +$H
+s link = $$GetREPPath^EK_"/AktSverkaTtu.rpt?init=actx&&Prompt0="
+s link = link_DogID_"^"_$zd(BPD,3,,4)_"^"_$zd(EPD,3,,4)_"^"_nam_"&Prompt1="_$H_"&Prompt2="_SFine
+n DateCreate 
+
+&SQL(SELECT BDate INTO :DateCreate FROM Contracts.EPhDogovor Where ID=:DogID)
+s:SQLCODE DateCreate = BPD
+
+s link = link_"&Prompt3=Date("_$tr($zd(DateCreate,3,,4),"-",",")_")"
+s link = link_"&Prompt4="_$s((..GetSession("LongBuchD")="checked"):1,1:0)
+s params = "'center:yes;dialogHeight:'+(screen.height-140)+'px;dialogWidth:'+(screen.width-40)+'px;'"
+s:(DateCreate>BPD) BPD = DateCreate
+s isby = ($$GetGVar^EK("BillerServiceProvider") = "TSBY")
+s fz  = "zaprosSverka('"_DogID_"','"_bbuuss_"','"_BPD_"','"_EPD_"','"_$tr($zd(BPD,4),"/",".")_"','"_f1_"',0,'"_isby_"','"_$tr($zd(hEPD,4),"/",".")_"');"
+s fz1 = "zaprosSverka('"_DogID_"','"_bbuuss_"','"_BPD_"','"_EPD_"','"_$tr($zd(BPD,4),"/",".")_"','"_f1_"',1,'"_isby_"','"_$tr($zd(hEPD,4),"/",".")_"');"
+s test = ##class(ESystem.Util).isTest()
+</server>
+  <div id='footer' class='hidden-print'>
+  <table width='100%'  align='right'>
+    <tr>
+      <td width=15% align=left>
+        <button class="hidden" onclick="showModalDialog('#(link)#','',#(params)#);">Акт сверки с потребителем</button>
+        <button onClick="#(fz)#" >Печать</button>
+        <button onClick="#(fz1)#" >Печать для суда</button>
+      </td>
+      <td width=20%>&nbsp;
+	      </td>
+     <td width=20% align=right>&nbsp;Сумма пени к оплате на #($zd(+$H,4))#&nbsp;&nbsp;&nbsp;<font color=red><b>#(SFine)#</font></b>&nbsp;руб.</td>
+    </tr>
+  </table>
+  </div>
+  
+  </div> <!--END HIDDEN PRINT-->
+  <div class='allow-print'></div>
+  
+     <!-- Modal -->
+  <div class="modal fade" id="myModal" role="dialog">
+    <div class="modal-dialog">    
+      <!-- Modal content-->
+      <div class="modal-content">
+        <div class="modal-header">
+          <button type="button" class="close" data-dismiss="modal">&times;</button>
+        </div>
+        <div class="modal-body" id="modalInfo">
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-default gray" onClick=printInfo("modalInfo");>Печать</button>
+          <button type="button" class="btn btn-default gray" data-dismiss="modal">Выйти</button>
+        </div>
+      </div>      
+    </div>
+  </div>
+  
+<script language="javascript">
+function printInfo(divId) {
+	var style='<LINK rel="STYLESHEET" TYPE="text/css" HREF="/Lib/style.css"><link rel="STYLESHEET" TYPE="text/css" HREF="/Lib/bootstrap/css/bootstrap.min.css">';
+	var divToPrint=document.getElementById(divId); 
+	var newWin=window.open('','Print-Window');
+	newWin.document.open();
+	newWin.document.write('<html><head>'+style+'</head><body onload="window.print()">'+divToPrint.innerHTML+'</body></html>');
+	newWin.document.close();
+	setTimeout(function(){newWin.close();},4);
+}
+
+  function ChSelect(sel, jname) {
+    var str = (0>sel.selectedIndex) ? '' : sel.options[sel.selectedIndex].value;
+    if (str > 0) {
+      #server(..SetSession(jname,str))#;
+      window.location.href = window.location.href;
+    };
+  };
+  
+  function ViewPay(jID){
+    showModalDialog('payment.csp?objid='+jID,'','center:1;scroll:no;dialogHeight:180px; dialogWidth:280px;');
+  }
+  function ChDetail(val){
+    #server(..SetSession("LongBuchD",val==true?'checked':''))#;
+    window.location.href=window.location.href;
+  }
+  function ChOper(val){
+    #server(..SetSession("OperBuchD",val==true?'checked':''))#;
+    window.location.href=window.location.href;
+  }
+  function JRet(page,oldID,newID){
+    var user=#server(Auth.SysUser.CheckUser())#;
+    var hr=window.location.href;
+    ahr=#server(OSV.HeatWater.PressBut(page,oldID,newID,user,hr))#;
+    window.location.href=ahr;
+  }
+  function RenderSP(elem,dogid,period)
+  {
+    var name = "spisanie";
+    var el = document.getElementById(name);
+    if (el) {return;}
+    var html = #server(OSV.HeatWater.RenderSP(dogid,period,name))#;
+    addElement(elem,name,html);
+  }
+  function RenderRecalc(elem,dogid,period,item,codn)
+  {
+    var nameRecalc = "";
+    $("#modalInfo").empty();
+    var modalInfo = $('#modalInfo')
+     $.ajax({
+      url: '/#($$GetWWWPath^EK)#/OSV.HeatWater.cls?method=RenderRecalc&contractId='+dogid+'&period='+period+'&item='+item+'&chargetype='+codn+'&nameRecalc='+nameRecalc,
+      success: function(response) {
+        modalInfo.append(response);
+        $("#myModal").modal();
+      }
+    });
+  }
+  function showNSI(elem,dogid,period)
+  {
+    var name = "modnsi";
+    var el = document.getElementById(name);
+    if (el) {return;}
+    var html = #server(OSV.HeatWater.RenderNSI(dogid,period,name))#;
+    addElement(elem,name,html);
+  }
+  function showExtInfo(elem,dogid,period,item,type)
+  {
+   var name = "";
+   var servtype = "";
+   $("#modalInfo").empty();
+   var modalInfo = $('#modalInfo');
+   var html = #server(OSV.HeatWater.RenderExtNachInfo(dogid,period,item,type,name))#;
+   modalInfo.append(html);
+   $("#myModal").modal();
+  }
+  function addElement(elem,name,html)
+  {
+    var divTag = document.createElement("div");
+    var wrap = document.getElementById("wrap");
+    var divhead = document.getElementById("divhead");
+    divTag.id = name;
+    divTag.style.position = 'absolute';
+    divTag.style.zIndex = 100;
+    var elemh = elem.offsetTop;
+    var wsh = wrap.scrollHeight;
+    var wch = wrap.clientHeight;
+    var wcw = wrap.clientWidth;
+    
+    wrap.appendChild(divTag).innerHTML = html;
+    var wrapTable = document.getElementById("wrap-"+name);
+    wrapTable.style.overflow = 'auto';
+    wrapTable.style.maxHeight = (wch - 150) + 'px';
+    var modh = divTag.clientHeight;
+    var modw = divTag.clientWidth;
+    divTag.style.left = (wcw/2)-(modw/2) + 'px';
+    divTag.style.top = (wch/2)-(modh/2) + 'px'; 
+    $(divTag).draggable();
+  }
+  function closeMod(name)
+  {
+    var el = document.getElementById(name);
+    el.parentNode.removeChild(el);
+  }
+  function zaprosSverka(dogid,userid,bdate,edate,bperiod,sfine,court,isby,eperiod)
+  {
+    var wfio = confirm('С указанием ФИО?') ? 1 : 0; 
+    var FUNC='d AktSverkaHW^Sverka(":PNAME",":P1",":P2",":P3",":P4",":P5")';
+    var balans =  document.getElementById('offBalance').checked ? 1 : 0;
+    var operPay = document.getElementById('opers').checked ? 'checked' : '';
+    var retS=showModalDialog('/#($$GetWWWPath^EK)#/ESystem/ProgressView.csp?TITLE=запрос для ОСВ&PNAME=AktSverkaHW'+userid+'^'+dogid+'^'+wfio+','+balans+'&FUNC='+escape(FUNC)+'&P1='+dogid+'&P2='+bdate+'&P3='+edate+'&P4='+userid+'&P5='+operPay+'&EOJ=0','','center:yes; status:no; scroll:no; dialogWidth:350pt; dialogHeight:90pt;');
+    var dgtype = #(typdg)#;
+    var report = "AktSverkaHW.fr3&wfio="+wfio+"&typedg="+dgtype+"&bperiod="+bperiod+"&sfine="+sfine+"&court="+court+"&isbiysk="+isby+"&eperiod="+eperiod;
+    var url = "/#($$GetWWWPath^EK)#/csp.reports.frproxy.cls?report="+#server(..EscapeURL("report="+report))#;
+    window.open(#server(..Link(url))#,'','left=0,top=0,statusbar=no,scrollbars=auto,resizable=yes,toolbar=no,width="+(screen.width-10)+",height="+(screen.height-100)+"');
+  }
+  function shtooltip(elem)
+  {
+    var tt = elem.children[0];
+    tt.style.display = 'block';
+    tt.style.right = elem.clientWidth+3;
+    tt.style.top = -3;
+  }
+  function htooltip(elem)
+  {
+    var tt = elem.children[0];
+    tt.style.display = 'none';
+  }
+  function pageLoaded() {
+    fixedTable();
+    var el = document.getElementById("bottom");
+    if ( el != null && el != undefined && el != "") {
+      el.scrollIntoView(false);
+    };
+  };
+  function printElement(name){
+    $('.allow-print').html($('#'+name).html());
+    window.print();
+  }
+  function clear() {    
+    #server(..ClearGlobal("#(DogID)#", "#(userId)#"))#;
+  }
+  
+    function JPrint(dgid)
+  {
+	  #server(Reports.Simply.Params.UpdateParams('NSU',dgid))#; 
+		window.open('/#($$GetGVar^EK("WWWPATH"))#/rep/simplyreport.csp?code=NSU','','center=yes; status= no; scrollbars=yes; left='+(screen.width/2-200)+'; top='+(screen.height/2-200)+' width=400px; height=400px;');
+		return false;
+  }
+  
+</script>
+</body>
+</html>
+
+<script language="Cache" method="WrT1" arguments='Facenum:%String,DogID:%String="",D1:%Date=0,D2:%Date=0,IC:%String=0,nuser:%String=""'>
+  #include EKERNELINC
+  n BPD,EPD,res,db,dbold,s1,s2,f,AgrtV,nn,itListp,isfakt
+  s lcrecalc = $lb(13,17,19,21,22)
+  s BPD=D1, EPD=D2, res="", s1=0, s2=0, itListp="", isfakt=0
+  
+  s res = 1
+  
+  &sql(select List(code) into :itListp from Charges.EServKind where ProdKind->code=:typdg and dutykind->code=2 and isFine=1)  s:SQLCODE itListp = ""
+  s:(itListp'="") itListp = ","_itListp_","
+  s:SQLCODE itListp = ""
+  s itListp = $lfs(itListp)
+  w "<table align='center' width='100%' border=0 cellspacing=1 cellpadding=0 class='itable table table-striped table-condensed table-condensed table-bordered text-center' fixed='thead,tfoot' style='background-color: #fff;vertical-align: middle;'>"
+  w "<thead>"  
+  w " <tr>"
+  w "   <td width=5% rowspan=3>Период начислений</td>"
+  w "   <td width=3% rowspan=3>Кол-во человек</td>"
+  w "   <td width=3% rowspan=3>Площадь</td>"
+  w "   <td width=6% rowspan=3>Сальдо на начало периода, руб.</td>"
+  w "   <td colspan='13' class='text-center'>Начислено за период</td>"
+  w "   <td colspan='1' rowspan=3>Сумма к возмещению</td>"
+  w "   <td colspan='1' rowspan=3>Всего начислено</td>"
+  w "   <td colspan='2'>Оплачено за период</td>"
+  w "   <td width=6% rowspan=3>Сальдо на конец периода, руб.</td>"
+  //w "   <td colspan='2'>Оплаты пени</td>"
+  w " </tr>"
+  // добавить коэф. коммун. width=3%
+  w " <tr>"
+  w "   <td width=7% rowspan=2>Услуга, руб.</td>"
+  w "   <td width=3% rowspan=2>Ист показ</td>"
+  w "   <td width=3% rowspan=2>Показ нач</td>"
+  w "   <td width=3% rowspan=2>Показ кон</td>"
+  w "   <td colspan='3'>Расход</td>"
+  w "   <td width=3% rowspan=2>Тариф, руб.</td>"
+  w "   <td width=3% rowspan=2>Норматив</td>"
+  w "   <td width=3% title='Объем ТЭ на подогрев 1 м3' rowspan=2>Объем ТЭ</td>"
+  w "   <td width=5% rowspan=2>Cумма, руб.</td>"
+  w "   <td width=4% rowspan=2>Перерасчеты, руб.</td>"
+  w "   <td width=4% rowspan=2>Итого начислено, руб.</td>"
+  w "   <td width=4% rowspan=2>Дата</td>"
+  w "   <td width=4% rowspan=2>Сумма, руб.</td>"
+  w " </tr>"
+  w " <tr>"
+  w "   <td width=4%>по счетчику</td>"
+  w "   <td width=4%>коэфф.</td>"
+  w "   <td width=4%>Объем</td>"
+  w " </tr>"
+  w "</thead>"
+  w "<tbody >"
+  ///////////////////////
+  ///Начало информационного блока таблицы
+  ///////////////////////
+  
+
+    // 1й договор
+  s ^||Tab = ""
+  
+    
+  for index=1:1:$ll(dgList){  
+    
+  new sumn,sa,ssub,sopl,g,itn,itnname,codn,dp,sump,itp,codp,cc,sn,psumn,psa,pssub,psump,it,sfinen,pfinen,pfinep,gvf,otf,rf,gvfp,otfp,seitem,hcount,square,nsi,sumnach,spnach
+  set (hcount, square, nsi) = "", db = BPD-1
+  set (sumn,sa,ssub,sopl,g,itn,itnname,codn,dp,sump,itp,codp,cc,sn,psumn,psa,pssub,psump,it,sfinen,pfinen,pfinep,gvf,otf,rf,gvfp,otfp,sumnach,spnach,numStr) = 0
+  set f = 1
+    
+    s DogID = $lg(dgList, index)
+    s AgrtV = "^||mtempAgrtV(""Op32"","_DogID_","_nuser_")"
+  
+  for { 
+    // по period
+    set db = $order(@AgrtV@("S", db))  quit:((db="")!(db>EPD))
+        
+    set nnp = "", (sumnach, cnt, cntrow) = 0
+    
+    for {
+      set nnp = $order(@AgrtV@("S", db, nnp)) quit:nnp=""
+      set nn = "", prby = +$p(nnp, "^", 3)
+      for {
+        set nn = $order(@AgrtV@("S", db, nnp, nn)) quit:nn=""
+        
+        set cnt = $increment(cnt) 
+        set g = @AgrtV@("S", db, nnp, nn)
+        set sn = $LG(g,3), item=$lg(g,4), codn=$LG(g,5), sumn=$LG(g,6), sa=$LG(g,7), ssub=$LG(g,8)
+        set dp = $LG(g,9), codp=$LG(g,11), sump=$LG(g,12), s2=$LG(g,13), cc=$LG(g,14), itn=$LG(g,15), itp=$LG(g,16), ccc=$LG(g,18)
+        set spfine = $lg(g, 20)
+        set chd1 = $lg(g, 34), chd2 = $lg(g, 35)
+        set (titl1, titl2) = ""
+        if ( (chd1'="") && ( (+$lg(g,25)'=0) || (+$lg(g,26)'=0) ) && ($lg(g,25)'="") ) { set titl1 = $zd(chd1, 4) }
+        if ( (chd2'="") && (+$lg(g,26)'=0) ) { set titl2 = $zd(chd2, 4) }
+        set it = $P(nnp, "x", 1), seitem(it) = s2
+        set servt = $p(nnp, "^", 2)
+        if (f = 1) { set seitem1(it) = $lg(g, 3) } ; запомнили сальдо начальное
+        set it = $lg(g, 4), gvf = $lg(g, 17), gvfp = gvfp + gvf
+        set (sfinen, sfinep) = 0
+        set isprint = 1, dpf = ""
+        
+        set dp = $S(dp>2:$ZD(dp,4),dp'>2 :"")_$s(itp'="":" "_itp,1:"")
+        set isfine = $lg(g,21)
+        
+        if ( isfine ) {
+          set dpf = dp, pfinep = pfinep + spfine
+          if (+sump = 0) { set dp = "" }
+        }
+        set psump = psump + sump
+				if (codn '= 5) { // исключая план!
+					set psumn = psumn + sumn
+					set sumnach = sumnach + sumn - sa - ssub
+				}
+				else { 
+				    set spnach = spnach + sumn 
+				}
+
+	      set psa = psa + sa
+	      set pssub = pssub + ssub
+	      set titlek = $lg(g, 42)
+	      set koefc = $lg(g, 41)
+        
+	      set hcount = $lg(g, 39)
+	      set square = $lg(g, 40)
+      
+	      set styledop = ""
+	      if ( (codn=20) || ( (codn=1) && (+servt=1) ) ) {
+	        set styledop = "style='text-decoration:underline;color:firebrick;cursor:pointer;'"
+	        set scriptdop = ""
+	      }
+        
+	      if ( isprint ) {
+	        
+	        w "<tr valign=top>"
+	      if (ccc = 1) {  
+	        set cntrow = cc
+	        //s ^||Tab("line", cntrow, +$E($ZD(db,3),6,7), +$E($ZD(db,3),1,4)) = $lb() 
+	        w "<td data- rowspan='"_cc_"'>", $P("январь февраль март апрель май июнь июль август сентябрь октябрь ноябрь декабрь"," ",+$E($ZD(db,3),6,7))," ",+$E($ZD(db,3),1,4)
+	        w "<td rowspan='"_cc_"' onClick=showNSI(this,'"_DogID_"','"_db_"'); style='cursor: pointer;'>"_hcount_"</td>" // кол-во человек
+	        w "<td rowspan='"_cc_"' onClick=showNSI(this,'"_DogID_"','"_db_"'); style='cursor: pointer;'>"_square_"</td>" // площадь
+	      }
+	        w "<td>"  if ( '($lf(itListp, +nnp) > 0) ) { 
+	         w ..NForm(sn) } else  { w " " } //долг на начало периода
+	        w "<td>"_itn // статья
+	        w "<td>"_$LG(g,24) // история показания
+          
+	        //не печатаем первое показание для счетчиков без показаний и печаиаем ноль для первой инсталяции для счетчиков с показаниями
+	        w "<td title='"_titl1_"' style='color:#20e; text-decoration: underline'>" if ((+$LG(g,25)'=0)||(+$LG(g,26)'=0))&&($LG(g,25)'="") w ..NForm($LG(g,25)) // показание начальное
+	        w "<td title='"_titl2_"' style='color:#20e; text-decoration: underline'>" if +$LG(g,26)'=0 w ..NForm($LG(g,26)) // показание конечное
+          
+	        ///Расход
+	        w "<td>" if (+$LG(g,26) '= 0) { w ..NForm($LG(g,31))_" "_$LG(g,32) } // Начисления -> Расход -> по счетчику
+	        if ( (koefc=0) || (koefc=1) ) { set koefc = "" }
+	        w "<td title='"_titlek_"' style='color:#20e; text-decoration: underline'>" 
+	        if (koefc'="") w ..NForm(koefc) // Начисления -> Расход -> коэффициент
+	        w "<td>" if (+$LG(g,27) '= 0) { 
+	         w $FNUMBER(..NForm($LG(g,27)),"",6) 
+	         W " "_$LG(g,33) 
+	        } // Начисления -> Расход -> Объем
+	        w "<td>"_..NForm($lg(g,36))_"</td>" // Начисления -> Тариф (руб.)
+	        if ( ($lg(g,37)=1) || ($lg(g,37)=0) ) { set norm = "" } 
+	        else { set norm = $lg(g, 37) }
+	        w "<td>" if (+norm '= 0) { 
+	        w $FNUMBER(..NForm(norm),"",6)_"</td>" 
+	        } // Начисления -> норматив
+			 if ( (+$lg(g,38)=1) || (+$lg(g,38)=0) ) {
+				set (koef, koefte, jsfunc) = ""
+			 } else {
+				set koef = $lg(g, 38)
+				set jsfunc = "onmouseover='shtooltip(this);' onmouseout='htooltip(this);'"
+				set koefte = "<div class='tooltip' style='display: none;'>"_..NForm($lg(g,43))_"</div>"
+			 }
+	         w "<td style='color:#20e;position: relative;' "_jsfunc_">" if (+koef'=0) {w $FNUMBER(..NForm(koef),"",6)} w koefte_"</td>" // Начисления -> Расход -> коэффициент/Объем ТЭ
+	        
+	        ///
+	        set (clicknach, stylenach) = ""
+			  if (codn '= 5) {
+				if ( ($lf(lcrecalc, codn) > 0) && (prby = 0) ) {
+					set clicknach = "RenderRecalc(this,'"_DogID_"','"_db_"','"_item_"','"_codn_"');"
+					set stylenach = "'color:#20e; text-decoration: underline; cursor: pointer;' title='Перерасчет'"
+			  	   } else  {
+					set stylenach = "'text-decoration:underline;color:firebrick;cursor:pointer;'"
+					set clicknach = "showExtInfo(this,'"_DogID_"','"_db_"','"_item_"','"_codn_"');"
+				   }
+				}
+	        w "<td onClick="""_clicknach_""" style="_stylenach_" >" 
+	        if (+sumn'=0)||(+$LG(g,27) '= 0) w ..NForm(sumn) w "</td>" // Начисления -> Сумма (руб.)
+         	
+         	w "<td></td>"
+	       
+	        if (ccc = 1) { w "<td id='SumNach-"_db_"' rowspan='"_cc_"'></td>" } /// Начисления -> Итого начислено
+	        if (cntrow = cnt) {
+	          if (sumnach'=0) { set sumnach = ..NForm(sumnach) }
+	          w "<script language='javascript'>ReplaceVal('SumNach-"_db_"','"_sumnach_"');<" 
+	          w "/script>"
+	        }
+	        w "<td>---</td>"
+	        w "<td>---</td>"
+	        /// Оплачено за период ///
+	        w "<td>",dp ;dp  // дата
+	        set mod = ""
+	        if (+codp=7)||(+codp=8) {s mod = "onClick='RenderSP(this,"_DogID_","_db_");' style='color:#20e; text-decoration: underline; cursor: pointer;' title='Списание'"}
+	        w "<td "_mod_" >" if (+sump '= 0) { w ..NForm(sump) } // сумма
+	        /// ///
+	        w "<td>" w ..NForm(s2) 
+	        /// Пеня ///
+	      
+        }
+         
+      }
+    
+    }
+
+
+    set f = 2
+
+
+  } 
+  
+  }
+  
+  //w ..NForm(spfine)
+  
+  w "</tbody>"
+  w "<tfoot id='bottom'><tr>"
+  w "<td>Итого:<td><td><td>",s1,"<td><td><td><td><td><td><td><td><td><td><td>",psumn,"<td><td>",psumn-psa-pssub,"<td>","<td><td><td>",psump,"<td>",s2-spnach, "</tr>"
+  w "<tr><td>Всего:<td><td><td>",s1,"<td><td><td><td><td><td><td><td><td><td><td>",psumn,"<td><td>",psumn-psa-pssub,"<td>","<td><td><td>",psump,"<td>",s2-spnach, "</tr>"
+  //,pfinep
+  w "</tfoot>"
+  w "</table></div><br>"
+  w "<div>"
+  w "<div class='col-sm-4'></div>"
+  w "<div class='col-sm-4'></div>"
+  w "<div class='col-sm-4'>Сумма пени к оплате: "_sfinen_"</div>"
+  w "</div>"
+  w !,"<pre>"
+  zw ^||Tab
+  w "</pre>"
+  quit
+</script>
+
+<script language="Cache" method="AgrT" arguments="params:%List" returntype="%List">
+  quit $$buch^buchD3.2tuBP(params)
+</script>
+
+<script language="Cache" method="SetSession" arguments="KEY:%String,VAL:%String" returntype="%String">
+  quit ##class(ESystem.EPrefs).SetPref(KEY,VAL)
+</script>
+
+<script language="Cache" method="GetSession" arguments="KEY:%String,VAL:%String" returntype="%String">
+  quit ##class(ESystem.EPrefs).GetPref(KEY)
+</script>
+
+<script language="Cache" method="WrSel" arguments="D1:%Date,D2:%Date,D3:%Date,Direction:%Boolean=1">
+	new BPD, EPD, ND
+	set ND = D1
+	for {
+		set BPD = ND, EPD = D3, ND = $$NextMMFromDate^EU(ND)
+		if ( (ND<D3) ! (ND=D3) ) { set EPD = ND-1 }
+		W "<option value="""_$S(Direction:BPD,1:EPD)_""""_$S($S(Direction:BPD,1:EPD)=D2:" selected",1:"")_">"_$P($$ZDR^EU(BPD,1),"/",1)_"/"_$P($$ZDR^EU(BPD,1),"/",3)
+		if (ND > D3) { quit }
+	}
+	quit
+</script>
+
+<script language="Cache" method="NForm" arguments="a:%String" returntype="%String">
+	if (a = "") { quit "" }
+	set zn = $select((a<0):"-", 1:"")
+	set abs = $ZABS(a)
+	set s1 = $select(((abs<1)&&(abs>0)):"0", 1:"")
+	quit zn_s1_abs
+</script>
+
+<script language="Cache" method="ClearGlobal" arguments="dogid:%String, userId:%String" returntype="%String">
+	//kill ^mtempAgrtV("Op32", dogid, userId)
+	quit $$$OK
+</script>
+
+<style>
+.table-bordered>thead>tr>th, .table-bordered>thead>tr>td, .table-bordered>thead>tr>th, .table-bordered>tbody>tr>th, .table-bordered>tfoot>tr>th, .table-bordered>thead>tr>td, .table-bordered>tbody>tr>td, .table-bordered>tfoot>tr>td{vertical-align: middle}
+</style>
